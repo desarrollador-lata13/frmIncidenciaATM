@@ -1,0 +1,803 @@
+<style type="text/css">
+
+a:visited {
+    color: #ffffff;
+    text-decoration: none;
+}
+a:hover {
+    color: #ffffff;
+    text-decoration: none;
+}
+a:active {
+    color: #ffffff;
+    text-decoration: none;
+}
+.h6Titulo2{
+	color: rgb(249,249,249) !important;
+    background-color: #1d428a !important;
+    font-weight: normal;
+    font-family: Verdana,Tahoma,sans-serif;
+    padding-left: 0px;
+    padding-right: 4px;
+    padding-top: 4px;
+    padding-bottom: 5px;
+    font-size: 15pt;
+    text-align: center;
+}
+</style>
+
+<link rel="stylesheet" href="/SiteAssets/js/materialize.css"> 
+<link rel="stylesheet" href="/SiteAssets/css/SharePointMaterialize.css"> 
+<link href="/SiteAssets/Microtech-Icon/styleAtlas.css" rel="stylesheet">
+<link rel="stylesheet" type="text/css" href="/SiteAssets/jquery.dataTables.css">   
+<script src="/SiteAssets/jquery-3.4.1.js"> </script>  
+<script src="/SiteAssets/materialize.min.js"> </script>  
+<script src="/SiteAssets/js/UtilidadesMicrotechOnPremV2.js"> </script>  
+<script type="text/javascript" src="_layouts/15/clienttemplates.js"> </script>  
+<script type="text/javascript" src="_layouts/15/clientforms.js"> </script>  
+<script type="text/javascript" src="_layouts/15/clientpeoplepicker.js"> </script>  
+<script type="text/javascript" src="_layouts/15/autofill.js"> </script> 
+<script type="text/javascript" charset="utf8" src="/SiteAssets/jquery.dataTables.js"> </script>  
+<script src = "/SiteAssets/sweetalert.min.js" >  </script>   
+<script src = "/SiteAssets/js/AprobacionesIncidenciaATM.js" >  </script> 
+<script type="text/javascript">
+    var siteUrl = _spPageContextInfo.webAbsoluteUrl;
+    var usuarioActual = _spPageContextInfo.userId;
+    var infoPaso;
+    var datosBoton;
+    var arrayJSON=[];
+    var tbProveedores = null;
+    var btnEditar = "<a class=\"waves-effect waves-light btn-flat modal-trigger\" href=\"#frmProveedor\" id=\"btnEditar\" onclick=\"Editar(";
+    $(document).ready(function () {
+        loading()
+        ConfigurarTextos()
+        $('#tbIngresadoPor').val(getUserTitle(_spPageContextInfo.userId));
+        $('#tbEstado').val('Nuevo');
+        $('#tbFechaCreacion').val(traerFechaHoy());
+        cargarDdlMaterialize('ddlATM', 'ATM', false, '(Seleccione)');
+ 		//Función para cambiar valor
+        $("#ddlATM").change(function () {
+			var codigo = parseInt($('#ddlATM').val());
+			TraerValorDeLaLista(codigo);
+        });
+
+        cargarDdlMaterialize('ddlIDATM', 'ATM', false, '(Seleccione)');
+        //funcion para cambiar valor
+
+		$("#ddlFinalizado").formSelect();
+        initializePeoplePicker("pkAsignado", false);
+        infoPaso = DevolverInfoPaso(0);
+        DesbloquearCampos(infoPaso);
+        $('#tbFechaHoraInicio').timepicker();
+        $('#tbFechaHoraLlegada').timepicker();
+        $('#tbFechaHoraFin').timepicker();
+        $('#frmProveedor').modal();
+        InicializarTabla();
+        setTimeout(function () {
+          	  IncluirPluging();
+        }, 5000);
+        loadingOff();
+	});
+
+  function IncluirPluging(){
+  		//Añadir los pluging para la tabla
+        $('#tbProveedores').DataTable({
+			searching: true,
+			ordering:  true,
+			paging: true
+		});
+    }
+
+  function Guardar() {
+        loading();
+        datosBoton = TraerDatosBoton("Guardar");
+        VerificarCamposObligatorios(infoPaso, CamposCorrectos, CamposIncorrectos);
+        function CamposCorrectos() {
+            var campos = DevolverJSONCargado(infoPaso)
+            Iniciar(CrearItem, campos, datosBoton.SiguientePaso);
+            function CrearItem(campos) {
+                campos.Comentarios = "<div> <i class='icon-user-circle'></i>" + " " + "<b>" + getUser(_spPageContextInfo.userId) + "</b> " + " " + "<i>" + "(" + traerFechaHoraHoy() + ") " + "</i>" + " <br />Nuevo: " + $('#tbComentarios').val() + "</div>";
+                console.log(campos);
+                CrearItemEnLista(siteUrl, 'Solicitud', campos, success, failure)
+                function success(data) {
+                    var select = "?$select=*,Author/Title,Asignado/Title&$expand=Author,Asignado";
+                    TraerItemDeListaCustomSelect(siteUrl, "Solicitud", data.Id, Correo, failure, select);
+                    function Correo(data) {
+                        EnviarCorreo(datosBoton.Correo, data);
+                        loadingOff();
+                        swal(datosBoton.TituloMensaje, datosBoton.TextoMensaje, "success");
+                    }
+                    function failure(data) {
+                        swal('Hubo un problema', 'Error al enviar los datos \n' + ':(', 'error')
+                        loadingOff();
+                        logError(data);
+                        console.log(data);
+                    }
+                }
+                function failure(data) {
+                    swal('Hubo un problema', 'Error al crear los items para los datos' + ':(', 'error')
+                    loadingOff();
+                    logError(data);
+                    console.log(data);
+                }
+            }
+        }
+        function CamposIncorrectos() {
+            loadingOff()
+            swal("Algo ha ocurrido mal...", "No se han llenado todos los campos obligatorios", "error");
+        }
+    }  
+
+  function InicializarTabla(){
+    	//Traer los datos de las lista en vector de JSON
+    	TraerItemsDeUnaLista(siteUrl, "Proveedor", completado, fallado); 
+         function completado(data) {
+           console.log(data);
+           ObtenerArrayJSON(data);
+           AgregarFilaTabla();
+     }
+          function fallado(data) {
+          	   var msmErr = data.responseJSON.error.innererror.message.toString();
+              console.log("Error al traer resultados: \n", msmErr);
+	          swal("Algo ha ocurrido mal...", "No se han leido todos los datos de la lista Categorias", "error");
+	         //$('#Contenido').append(contenido+"</td></tr>");     
+		 }
+    } 
+  function ObtenerArrayJSON(data){
+    console.log(data)
+    var campos="";
+          //Recorriendos los datos traidos de las listas
+          for (elemento in data.results){
+               campos ={
+                    Id:  data.results[elemento].ID,  
+                    Title: data.results[elemento].Title, 
+                    Cerrado: data.results[elemento].Cerrado, 
+                    Categoria: data.results[elemento].Categoria, 
+                    Incidente: data.results[elemento].Incidente, 
+                    Descripcion: data.results[elemento].Descripcion, 
+                    FechaHoraInicio: data.results[elemento].FechaHoraInicio.toString(),
+                    FechaHoraLlegada: data.results[elemento].FechaHoraLlegada.toString(),
+                    FechaHoraFin: data.results[elemento].FechaHoraFin.toString(),
+                    CodResponsable : data.results[elemento].AuthorId, 
+                    Responsable: data.results[elemento].AuthorId.toString().concat(" - "+ getUserTitle(data.results[elemento].AuthorId)), 
+                    Editar : btnEditar + data.results[elemento].Id + ")\"> <i class='icon-pencil prefix'></i> Editar</a>"
+              }
+               arrayJSON.push(campos);
+               campos="";
+
+         }
+  }
+  function AgregarFilaTabla(){
+	var contenido ="";
+	//Reccorriendo el array de JSON para añadir fila en la tabla 
+    for (var clave in arrayJSON){
+ 		// Controlando que json realmente tenga esa propiedad
+ 			if (arrayJSON.hasOwnProperty(clave)) {
+  				// Mostrando en pantalla la clave junto a su valor
+   				contenido += "<tr><td>" + arrayJSON[clave].Id + "</td><td>"+
+                           arrayJSON[clave].Title + "</td><td>"+
+                           arrayJSON[clave].Cerrado + "</td><td>"+
+                           arrayJSON[clave].Categoria  + "</td><td>"+
+                           arrayJSON[clave].Incidente  + "</td><td>"+
+                           arrayJSON[clave].Descripcion  + "</td><td>"+
+                           new Date(arrayJSON[clave].FechaHoraInicio).toLocaleDateString()  + "</td><td>"+
+                           new Date(arrayJSON[clave].FechaHoraLlegada).toLocaleDateString()  + "</td><td>"+
+                           new Date(arrayJSON[clave].FechaHoraFin).toLocaleDateString()  + "</td><td>"+
+                           arrayJSON[clave].Editar + "</td></tr>"
+  			}
+  			//console.log(contenido);
+ 		 }
+
+  		$('#Contenido').append(contenido); 
+   }
+
+  function TraerValorDeLaLista(codigo){
+		TraerItemDeLista(siteUrl,"ATM",codigo,complete,failure)  
+        function complete(data) {
+                console.log(data);
+                $("#ddlIDATM").val(data.Codigo);
+                $("#tbNombre").val(data.Title);
+                $("#tbLocalidad").val(data.Localidad);
+				$("#tbCategoriaATM").val(data.Categoria);
+				$("#tbTipoEnlace").val(data.TipoEnlace);
+                $("#tbMarca").val(data.Marca);
+				$("#tbNroCuentaEnlace").val(data.NroCuentaEnlace);
+				$("#tbModelo").val(data.Modelo);
+                $("#tbUbicaciones").val(data.Ubicaciones);
+				$("#tbPortaValor").val(data.PortaValor);
+				$("#tbCiudadBarrio").val(data.CiudadesBarrios);
+				$("#tbDirecciones").val(data.Direcciones)
+            }
+            function failure(data) {
+				console.log("Error", data);
+				var msmErr = data.responseJSON.error.innererror.message.toString();
+                swal("Algo ha ocurrido mal al leer el dato de la lista", "Por causa: \n" + msmErr, "error");
+            }
+	}
+
+  function LimpiarFormulario(){
+    //Se debe vaciar cada elemento del formulario del modal
+    $("#tbTituloProveedor").val("");
+    $("#tbCategoriaProveedor").val("");
+    $("#tbIncidente").val("");
+    $("#tbTituloProveedor").val("");
+    $("#tbDescripcionProveedor").val("");
+    $("#tbFechaHoraInicio").val("");
+    $("#tbFechaHoraLlegada").val("");
+    $("#tbFechaHoraFin").val("");
+    $("#botonModal").empty() ;
+    $("#ProveedorId").val(0);
+
+  }
+
+  function AbrirModal(){
+        var btnGuardar ="<a href=\"#!\" id=\"cerrar\" class=\"modal-close waves-effect waves-green btn-small\" onclick=\"Agregar()\">Agregar</a>";
+        // limpiar el formulario
+        LimpiarFormulario();
+        $("#botonModal").append(btnGuardar);
+        $('#TituloModal').text("Crear un nuevo Proveedor"); 
+        $("#tbTituloProveedor").prop('disabled', false);
+        $("#ddlCerrado").prop('disabled', false);
+        $("#tbCategoriaProveedor").prop('disabled', false);
+        $("#tbIncidente").prop('disabled', false);
+        $("#tbTituloProveedor").prop('disabled', false);
+        $("#tbDescripcionProveedor").prop('disabled', false);
+        $("#tbFechaHoraInicio").prop('disabled', false);
+        $("#tbFechaHoraLlegada").prop('disabled', false);
+        $("#tbFechaHoraFin").prop('disabled', false);
+      }
+
+ function Agregar(){
+	if(validarElementoFormulario()){
+		//Valores Para el Create: AuthorId: usuarioActual; Created:  traerFechaHoy();
+		var campos= {
+              Title: $("#tbTituloProveedor").val(),
+              Categoria: $("#tbCategoriaProveedor").val(),
+   			  Incidente:  $("#tbIncidente").val(),
+    		  Cerrado: $("#ddlCerrado").val(),
+    		  Descripcion: $("#tbDescripcionProveedor").val(),
+    		  FechaHoraInicio: new Date($("#tbFechaHoraInicio").val()).toLocaleDateString(),
+    		  FechaHoraLlegada: new Date($("#tbFechaHoraLlegada").val()).toLocaleDateString(),
+    		  FechaHoraFin: new Date($("#tbFechaHoraFin").val()).toLocaleDateString(),
+			  AuthorId: usuarioActual,
+			  Created:  traerFechaHoy()
+		}
+		//agregar elemento en la lista
+         CrearItemEnLista(siteUrl, "Proveedor", campos,completado, fallado)
+         function completado(data) { 
+         	//obtener valores de la data   
+            campos="";
+         	var varCod = data.Id;
+         	var varTitle = data.Title;
+         	var varCodResponsable = data.AuthorId;
+         	swal("Registro añadido con éxito!...", "Se ha registrado con éxito tu datos: \n"+varCod + " - " +varTitle + " con el responsable: "+getUserTitle(varCodResponsable), "info");
+         	
+             // actualizando tabla
+             //alert("Cargando datos", "Actualizando la tabla");
+            console.log("Actualizando la tabla");
+            campos = {
+                    Id:  data.ID,  
+                    Title: data.Title, 
+                    Cerrado: data.Cerrado, 
+                    Categoria: data.Categoria, 
+                    Incidente: data.Incidente, 
+                    Descripcion: data.Descripcion, 
+                    FechaHoraInicio: new Date(data.FechaHoraInicio.toString()).toLocaleDateString(),
+                    FechaHoraLlegada: new Date(data.FechaHoraLlegada.toString()).toLocaleDateString(),
+                    FechaHoraFin: new Date(data.FechaHoraFin.toString()).toLocaleDateString(),
+                    CodResponsable : data.AuthorId, 
+                    Responsable: data.AuthorId.toString().concat(" - "+ getUserTitle(data.AuthorId)), 
+                    Editar : btnEditar + data.Id + ")\"> <i class='icon-pencil prefix'></i> Editar</a>"
+            }
+            arrayJSON.push(campos);
+            //Obtener la tabla
+            var tbProveedores = $('#tbProveedores').DataTable();
+        
+            //Añadir elemento a la fila de la tabla
+             tbProveedores.row.add([campos.Id, campos.Title,campos.Cerrado, campos.Categoria, campos.Incidente,campos.Descripcion, new Date(campos.FechaHoraInicio).toLocaleDateString(), new Date(campos.FechaHoraLlegada).toLocaleDateString(), new Date(campos.FechaHoraFin).toLocaleDateString(), campos.Editar]).draw(false);
+         }
+         function fallado(data) {
+            	console.log("Error al traer resultados: \n", data);
+            var msmErr = 
+            data.responseJSON.error.innererror.message.toString();
+           swal("Algo ha ocurrido mal al insertar la lista..", "No se han añadido todos los datos de la lista Categorias por causa: \n"+ msmErr, "error"); 
+            }
+	}
+	
+  } 
+
+  function validarElementoFormulario()
+  {
+    //Declarar variables a utilizar
+    var Resultado=true;
+    var varTitulo ="";
+    var varCategoria = 0;
+    var varDescripciones = 0;
+    var varIncidentes = 0;
+    var varCerrado = ""
+    var varFechaHoraInicio ="";
+    var varFechaHoraLlegada = "";
+    var varFechaHoraFin = "";
+
+    
+    //Inicializar valor del componente modal
+    varTitulo = $("#tbTituloProveedor").val()===undefined ? varTitulo = "" : varTitulo = $("#tbTituloProveedor").val();
+
+    varCategoria = $("#tbCategoriaProveedor").val()===undefined ? varCategoria = -1 : varCategoria = $("#tbCategoriaProveedor").val();
+
+   varIncidentes = $("#tbIncidente").val()===undefined ? varIncidentes = -1 : varIncidentes = $("#tbIncidente").val(); 
+
+   varDescripciones = $("#tbDescripcionProveedor").val()===undefined ? varDescripciones = -1 : varDescripciones = $("#tbDescripcionProveedor").val();
+
+    varFechaHoraInicio = $("#tbFechaHoraInicio").val()===undefined ? varFechaHoraInicio = -99: varFechaHoraInicio = $("#tbFechaHoraInicio").val();
+
+    varFechaHoraLlegada = $("#tbDescripcionProveedor").val()===undefined ? varFechaHoraLlegada = -99 : varFechaHoraLlegada = $("#tbDescripcionProveedor").val();
+
+    varFechaHoraFin = $("#tbDescripcionProveedor").val()===undefined ? varFechaHoraFin =-99 : varFechaHoraFin = $("#tbDescripcionProveedor").val();
+
+   varCerrado = $("#ddlCerrado").val();
+
+    //Validación minima por componente
+    if(varTitulo.length <= 0 || jQuery.isEmptyObject(varTitulo)){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Titulo del Proveedor","error");
+               Resultado=false;
+        }
+
+        if(isNaN(varCategoria) || varCategoria <=0){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Categorias","error");
+               Resultado=false;
+        }
+
+        if(isNaN(varIncidentes) || varIncidentes <=0){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Incidente","error");
+               Resultado=false;
+        }
+
+         if(isNaN(varDescripciones) || varDescripciones <=0){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Descripcion","error");
+               Resultado=false;
+        }
+
+        if(varCerrado!="Si" && varCerrado !="No"){
+               swal("Algo ha ocurrido mal al cargar", "No se han seleccionado ningún valor para el campo de Cerrado","error");
+               Resultado=false;
+        }
+
+        if(varFechaHoraInicio===-99){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Fecha y Hora de Inicio","error");
+               Resultado=false;
+        }
+
+        if(varFechaHoraLlegada===-99){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Fecha y Hora de Llegada","error");
+               Resultado=false;
+        }
+
+        if(varFechaHoraFin===-99){
+               swal("Algo ha ocurrido mal al cargar", "No se han cargado el campo de Fecha y Hora de Fin","error");
+               Resultado=false;
+        }
+
+
+        return Resultado;
+  } 
+
+  function Editar(id)
+  {
+    //obtener el campo oculto
+    var editar = $("#ProveedorId");
+    //Limpiar el formulario
+    LimpiarFormulario();
+    // Generar el boton para guardar
+    $('#TituloModal').text("Editar el Proveedor");
+    //Traer un elemento de la lista por id
+    console.log("Cod Proveedor: "+id);
+    //Obtener el elemento seleccionado en la tabla por ID
+    TraerItemDeLista(siteUrl, "Proveedor", id, completado, fallado);
+     function completado(data) {
+            // Agregar a los componentes del formulario
+            /* Elemento 
+            campos.Id, campos.Title,campos.Cerrado, campos.Categoria, campos.Incidente,campos.Descripcion, new Date(campos.FechaHoraInicio).toLocaleDateString(), new Date(campos.FechaHoraLlegada).toLocaleDateString(), new Date(campos.FechaHoraFin).toLocaleDateString(), campos.Editar
+            */
+              editar.val(data.ID);
+              $("#tbTituloProveedor").val(data.Title);
+              $("#ddlCerrado").val(data.Cerrado);
+              $("#tbCategoriaProveedor").val(data.Categoria);
+              $("#tbIncidente").val(data.Incidente);
+              $("#tbTituloProveedor").val(data.Title);
+              $("#tbDescripcionProveedor").val(data.Descripcion);
+              $("#tbFechaHoraInicio").val(new Date(data.FechaHoraInicio.toString()).toLocaleDateString());
+              $("#tbFechaHoraLlegada").val(new Date(data.FechaHoraLlegada.toString()).toLocaleDateString());
+              $("#tbFechaHoraFin").val(new Date(data.FechaHoraFin.toString()).toLocaleDateString());
+     }
+
+      function fallado(data) {
+           console.log("Error al traer resultados: \n", data);
+           var msmErr = data.responseJSON.error.innererror.message.toString();
+           swal("Algo ha ocurrido mal al leer el dato de la lista", "No se han buscado el dato:"+ id +" de la lista Categorias por causa: \n" +msmErr, "error"); 
+        }
+        // Habilitar a los componentes del formulario
+        $("#tbTituloProveedor").prop('disabled', false);
+        $("#ddlCerrado").prop('disabled', false);
+        $("#tbCategoriaProveedor").prop('disabled', false);
+        $("#tbIncidente").prop('disabled', false);
+        $("#tbTituloProveedor").prop('disabled', false);
+        $("#tbDescripcionProveedor").prop('disabled', false);
+        $("#tbFechaHoraInicio").prop('disabled', false);
+        $("#tbFechaHoraLlegada").prop('disabled', false);
+        $("#tbFechaHoraFin").prop('disabled', false);
+
+        var btnGuardar ="<a href=\"#!\" id=\"cerrar\" class=\"modal-close waves-effect waves-green btn-small\" onclick=\"Modificar()\">Modificar</a>";
+          $("#botonModal").append(btnGuardar)
+  }
+
+  function Modificar()
+  {
+        var campos="";
+        var varId=$("#ProveedorId").val() ;
+        console.log(varId);
+        if(validarElementoFormulario()){
+            //Valores Para el Edit: EditorId: usuarioActual; Modified: traerFechaHoy();
+            campos= {
+              Title: $("#tbTituloProveedor").val(),
+              Categoria: $("#tbCategoriaProveedor").val(),
+              Incidente:  $("#tbIncidente").val(),
+              Cerrado: $("#ddlCerrado").val(),
+              Descripcion: $("#tbDescripcionProveedor").val(),
+              FechaHoraInicio: $("#tbFechaHoraInicio").val(),
+              FechaHoraLlegada: $("#tbFechaHoraLlegada").val(),
+              FechaHoraFin: $("#tbFechaHoraFin").val(),
+              EditorId: usuarioActual,
+              Modified: traerFechaHoy()
+            }
+            EditarItemDeLista(siteUrl, "Proveedor", campos,completado, fallado, varId);
+            function completado(data) {
+                //Variables para mostrar en el mensaje:
+                var varCod = data.Id;
+                var varTitle = data.Title;
+                var varCodResponsable = data.EditorId;
+
+                swal("Registro actualizado con éxito!...", "Se ha modificado con éxito tu datos: \n"+varCod + " - " +varTitle + " con el responsable: "+getUserTitle(varCodResponsable), "info"); 
+                //actualizando la tabla
+                var tbProveedores = $('#tbProveedores').DataTable();
+                tbProveedores.ajax.reload();
+
+            }
+            function fallado(data) {
+               console.log("Error al traer resultados: \n", data);
+               var msmErr = data.responseJSON.error.innererror.message.toString();
+               swal("Algo ha ocurrido mal al actualizar el registro..", "No se han editado los datos de la lista Categorias por causa: \n"+ msmErr , "error"); 
+        }
+        }
+
+
+}
+</script>
+<div class="container">
+<h3 class="titulo">Nuevo incidente de ATM</h3>
+<div class="row">
+	<div class="col m6 s12" id="divIngresadoPor"> 
+		<div class="input-field"> 
+			<i class="icon-user-circle prefix"> </i> 
+			<input disabled type='text' placeholder="" ID="tbIngresadoPor" /> 
+			<label id="lblIngresadoPor" for="tbIngresadoPor">Cargado Por</label> 
+		</div> 
+	</div>  
+	<div class="col m6 s12" id="divFechaCreacion"> 
+		<div class="input-field">
+			<i class="icon-calendar prefix"></i> 
+			<input disabled type='text' ID="tbFechaCreacion" /> 
+			<label id="lblFechaCreacion" for="tbFechaCreacion">Cargado el</label> 
+		</div> 
+	</div> 
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divEstado'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbEstado' type='text' id='tbEstado' placeholder=''> 
+			<label id='lblEstado' for='tbEstado' class='active'>Estado </label> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divFechaCierre'> 
+		<div class='input-field'> 
+			<i class='icon-calendar prefix'></i> 
+			<input disabled  name='tbFechaCierre' type='text' id='tbFechaCierre' class='datepicker'> 
+			<label id='lblFechaCierre' for='tbFechaCierre' class='active'>Fecha cierre </label> 
+		</div> 
+	</div>  
+</div>
+<div class="row">
+	<div class='col l6 m6 s6' id='divAsignado'> 
+		<div class='input-field'> 
+			<i class='icon-user-circle prefix'></i> 
+			<div ID='pkAsignado'  style='padding-left: 32px'> </div> 
+			<label id='lblAsignado' for='pkAsignado' class='active'>Asignado</label> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divHoraCierre'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbHoraCierre' type='text' id='tbHoraCierre' placeholder=''> 
+			<label id='lblHoraCierre' for='tbHoraCierre' class='active'>Hora Cierre </label> 
+		</div> 
+	</div>
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divATM'> 
+		<div class='input-field'> 
+			<label id='lblATM' for='ddlATM' style='padding-left: 55px;' class='active'>ATM </label> 
+			<i class='icon-list prefix'></i> 
+			<select disabled id='ddlATM'></select> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divCategoria'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbCategoria' type='text' id='tbCategoria' placeholder=''> 
+			<label id='lblCategoria' for='tbCategoria' class='active'>Categoria </label> 
+		</div> 
+    </div>
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divIDATM'> 
+		<div class='input-field'> 
+			<label id='lblIDATM' for='ddlIDATM' style='padding-left: 55px;' class='active'>IDATM </label> 
+			<i class='icon-list prefix'></i> 
+			<select disabled id='ddlIDATM'></select> 
+		</div> 
+	</div>  
+	<!-- De aquí se debe cargar automáticamente por ATM seleccionado -->
+	<div class='col l6 m12 s12' id='divTipoEnlace'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbTipoEnlace' type='text' id='tbTipoEnlace' placeholder=''> 
+			<label id='lblTipoEnlace' for='tbTipoEnlace' class='active'>Tipo enlace </label> 
+		</div> 
+	</div> 
+	
+	
+</div>
+<!-- De aquí se debe cargar automáticamente por ATM seleccionado -->
+<div class="row">
+<div class='col l6 m12 s12' id='divMarca'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbMarca' type='text' id='tbMarca' placeholder=''>
+			<label id='lblMarca' for='tbMarca' class='active'>
+				Marca 
+	        </label> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divNroCuentaEnlace'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbNroCuentaEnlace' type='text' id='tbNroCuentaEnlace' placeholder=''> 
+			<label id='lblNroCuentaEnlace' for='tbNroCuentaEnlace' class='active'>Nro cuenta enlace </label> 
+		</div> 
+	</div>
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divModelo'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbModelo' type='text' id='tbModelo' placeholder=''> 
+			<label id='lblModelo' for='tbModelo' class='active'>Modelo </label> 
+	   </div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divLocalidad'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbLocalidad' type='text' id='tbLocalidad' placeholder=''> 
+			<label id='lblLocalidad' for='tbLocalidad' class='active'>Interior / Gran Asunci&oacute;n </label> 
+	   </div> 
+	</div>
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divUbicaciones'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			 <input disabled  name='tbUbicaciones' type='text' id='tbUbicaciones' placeholder=''> 
+			 <label id='lblUbicaciones' for='tbUbicaciones' class='active'>Ubicaci&oacute;n </label> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divNombre'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbNombre' type='text' id='tbNombre' placeholder=''> 
+			<label id='lblNombre' for='tbNombre' class='active'>Nombre </label> 
+		</div> 
+	</div>  
+</div>
+<div class="row">
+<div class='col l6 m12 s12' id='divPortaValor'> 
+		<div class='input-field'> 
+			 <i class='icon-paper prefix'></i> 
+			 <input disabled  name='tbPortaValor' type='number' id='tbPortaValor' min="0" max="1000"> 
+			 <label id='lblPortaValor' for='tbPortaValor' class='active'>Porta Valor </label> 
+		</div> 
+	</div>  
+	<div class='col l6 m12 s12' id='divCategoriaATM'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbCategoriaATM' type='text' id='tbCategoriaATM' placeholder=''> 
+			<label id='lblCategoriaATM' for='tbCategoriaATM' class='active'>Categoria</label> 
+		</div> 
+	</div>  
+</div>
+<div class="row">
+	<div class='col l12 m12 s12' id='divDirecciones'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbDirecciones' type='text' id='tbDirecciones' placeholder=''> 
+			<label id='lblDirecciones' for='tbDirecciones' class='active'>Direcci&oacute;n </label> 
+		</div> 
+	</div>  
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divCiudadBarrio'> 
+		<div class='input-field'> 
+			<i class='icon-pencil prefix'></i> 
+			<input disabled  name='tbCiudadBarrio' type='text' id='tbCiudadBarrio' placeholder=''> 
+			<label id='lblCiudadBarrio' for='tbCiudadBarrio' class='active'>Ciudad /Barrio </label> 
+		</div> 
+	</div>
+</div>
+<div class="row">
+	<div class='col l6 m12 s12' id='divPaso'> 
+		<div class='input-field'> 
+			  <i class='icon-paper prefix'></i> 
+			   <input disabled  name='tbPaso' type='number' id='tbPaso'> 
+			    <label id='lblPaso' for='tbPaso' class='active'>Paso </label> 
+		</div> 
+	</div>  
+    <div class='col l6 m12 s12' id='divCerrado'>
+	   <div class='input-field'> 
+			<label id='lblCerrado' for='ddlCerrado' style="padding-left: 55px;" class='active'>Cerrado </label>
+	    	<i class='icon-list prefix'></i> 
+			<select disabled id='ddlCerrado'>
+		 		<option>No</option>
+				<option>Si</option> 
+			</select> 
+	    </div> 
+  </div>  		         	
+  <div class='col l6 m12 s12' id='divVencimiento'> 
+	<div class='input-field'> 
+			<i class='icon-calendar prefix'></i> 
+			<input disabled  name='tbVencimiento' type='text' id='tbVencimiento' class='datepicker'>
+    		<label id='lblVencimiento' for='tbVencimiento' class='active'>
+    			Vencimiento 
+    		</label> 
+	</div> 
+  </div>  
+</div>
+<div class="row">
+   <div class="col m12 l6 s12">
+      <div class="divTitulos2" id="divTitulo2">
+	       <h6 class="h6Titulo2" id="h6Titulo2">
+	             <strong><em>Proveedores Contactos</em></strong>
+	       </h6>  
+       </div>   
+       <div id="botones">                  
+	 		 <a class="waves-effect waves-light btn-small modal-trigger" href="#frmProveedor" id="btnNuevaProveedor" onclick="AbrirModal()">
+				 Nuevo          
+	  		</a> 
+      </div>	  
+  </div> 
+</div>
+   <!-- Modal para nuevo y editar -->
+<div class="row">
+ <div id="frmProveedor" class="modal">
+    <div class="modal-content">
+                <!-- Cambiar el titulo según función que llame-->
+                      <h4 id="TituloModal">Modal Header</h4>
+                     <!-- Añadir los compomentes para nuevo o editar -->
+                     <input type="hidden" id="ProveedorId" name="ProveedorId" value="0">
+                     <div class="row">
+   						<div class="col m6 l6 s6">
+   							<div class='input-field'>
+   								<i class='icon-pencil prefix'></i> 
+								<input disabled  name='tbTituloProveedor' type='text' id='tbTituloProveedor' placeholder=''>
+								<label id='lblTituloProveedor' for='tbTituloProveedor' class='active'>
+									Nombre Proveedor 
+	        					</label>
+   							</div>
+   						</div>
+   						<div class="col m6 l6 s6">
+   							<div class='input-field'>
+   								<label id='lblCerrado' for='ddlCerrado' style='padding-left: 55px;' class='active'>Cerrado </label> 
+								<i class='icon-list prefix'></i> 
+								<select id='ddlCerrado'>
+										<option value="Si">Si</option>
+										<option value="No" selected>No</option>
+								</select> 
+   							</div>
+   						</div>
+   					</div>
+                   <div class="row">
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-paper prefix'></i> 
+								<input disabled  name='tbCategoriaProveedor' type='number' id='tbCategoriaProveedor' min="0" max="1000"> 
+								<label id='lblCategoriaProveedor' for='tbCategoriaProveedor' class='active'>Categoria Proveedor</label> 
+   							</div>
+   						</div> 
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-paper prefix'></i> 
+			 					<input disabled  name='tbIncidente' type='number' id='tbIncidente' min="0" max="1000"> 
+			 					<label id='lblIncidente' for='tbIncidente' class='active'>Incidente</label> 
+   							</div>
+   						</div> 
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-paper prefix'></i> 
+			 					<input disabled  name='tbDescripcionProveedor' type='number' id='tbDescripcionProveedor' min="0" max="1000"> 
+			 					<label id='lblDescripcionProveedor' for='tbDescripcionProveedor' class='active'>Descripcion</label> 
+   							</div>
+   						</div>  
+					</div>
+					<div class="row">
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-calendar prefix'></i> 
+   								<input disabled  name='tbFechaHoraInicio' type='text' id='tbFechaHoraInicio' class='datepicker'>
+    							<label id='lblFechaHoraInicio' for='tbFechaHoraInicio' class='active'>
+    									Fecha Hora Inicio 
+    							</label> 
+   							</div>
+   						</div> 
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-calendar prefix'></i> 
+   								<input disabled  name='tbFechaHoraLlegada' type='text' id='tbFechaHoraLlegada' class='datepicker'>
+    							<label id='lblFechaHoraLlegada' for='tbFechaHoraLlegada' class='active'>
+    									Fecha Hora Llegada 
+    							</label> 
+   							</div>
+   						</div>
+   						<div class="col m4 l4 s4">
+   							<div class='input-field'>
+   								<i class='icon-calendar prefix'></i> 
+   								<input disabled  name='tbFechaHoraFin' type='text' id='tbFechaHoraFin' class='datepicker'>
+    							<label id='lblFechaHoraFin' for='tbFechaHoraFin' class='active'>
+    									Fecha Hora Fin
+    							</label> 
+   							</div>
+   						</div>    
+					</div>
+	</div>
+	<div class="modal-footer" >
+		<div class='col l3 m6 s6' id="botonModal">
+
+		</div>
+    </div>	
+  </div>
+</div>
+	<!-- Generar la tabla automáticamente -->
+<div class="row" id="divTablas">
+		<table id="tbProveedores" class="table striped responsive-table">
+			<thead>
+				<tr class="grey lighten-2">
+					<td>Id</td>
+					<td>Proveedor</td>
+					<th>Cerrado</th>
+					<th>Categoria incidente</th>
+					<th>Incidente</th>
+					<th>Descripci&oacute;n</th>
+					<th>Fecha hora inicio</th>
+					<th>Fecha hora llegada</th>
+					<th>Fecha hora fin</th>
+					<th>Acciones</th>
+			  </tr>
+			</thead>
+			<tbody id="Contenido">
+
+			</tbody>
+		</table>
+	</div>  
+<div class="row"> 
+	<a style='float:right' class='waves-effect waves-light btn' onClick='Guardar()'>Guardar</a> 
+ </div>
+<div class="loader"></div>`
+</div>
